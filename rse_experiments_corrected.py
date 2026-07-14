@@ -1,18 +1,3 @@
-"""
-Corrected single-qubit experiments for:
-'Structure-Preserving Fourth-Order Lie-Group Integration and Noise-Metric-Aware
- Optimal Control for Random Schrodinger Equations'
-
-Fixes vs. original notebook:
-  * Correct CFM4 coefficients: Omega1 = -i h (a1 H(t1) + a2 H(t2)),
-    Omega2 = -i h (a2 H(t1) + a1 H(t2)), a1,2 = 1/4 +- sqrt(3)/6  (Gauss nodes
-    c1,2 = 1/2 -+ sqrt(3)/6).  Original code advanced 2h per step (order 2).
-  * Convergence measured against an INDEPENDENT reference integrator.
-  * Deterministic gate cost for the surrogate formulations (as in the paper);
-    ensemble-averaged gate cost kept as an explicit baseline (robust GRAPE).
-  * All RNG seeds fixed.
-Pure numpy (no scipy).
-"""
 import numpy as np, json, os
 import matplotlib
 matplotlib.use('Agg')
@@ -28,19 +13,17 @@ def savefig(name):
     plt.savefig(f'{OUT}/{name}.pdf'); plt.savefig(f'{OUT}/{name}.png'); plt.close()
     print('saved',name,flush=True)
 
-# ---------------- setup ----------------
 T=5.0; N=200; h=T/N
 omega0=1.0
-tgrid=np.linspace(0,T,N+1)              # N steps
+tgrid=np.linspace(0,T,N+1)             
 c1,c2=0.5-np.sqrt(3)/6.0,0.5+np.sqrt(3)/6.0
 a1,a2=0.25+np.sqrt(3)/6.0,0.25-np.sqrt(3)/6.0
-tn1=tgrid[:-1]+c1*h; tn2=tgrid[:-1]+c2*h        # quadrature node times (N each)
+tn1=tgrid[:-1]+c1*h; tn2=tgrid[:-1]+c2*h     
 theta=np.pi/2
 V=np.array([[np.cos(theta/2),-1j*np.sin(theta/2)],
             [-1j*np.sin(theta/2),np.cos(theta/2)]])
 I2=np.eye(2,dtype=complex)
 
-# ---------------- Matern nu=3/2 sampling at arbitrary times ----------------
 def matern_cov(ts,sigma,ell):
     r=np.abs(ts[:,None]-ts[None,:]); f=np.sqrt(3.0)*r/ell
     return sigma**2*(1.0+f)*np.exp(-f)+1e-10*np.eye(len(ts))
@@ -52,7 +35,6 @@ def sample_matern(rng,ts,sigma,ell,S):
 ts_nodes=np.sort(np.concatenate([tn1,tn2]))
 idx1=np.searchsorted(ts_nodes,tn1); idx2=np.searchsorted(ts_nodes,tn2)
 
-# ---------------- batched CFM4 propagator ----------------
 def prop_cfm4(ux,uy,nz,ndx,ndy,return_traj=False):
     """CFM4, vectorized. Controls ux,uy: (B,N). Noise dict entries are tuples
     (node1,node2) each (S,N), or None:
@@ -120,7 +102,6 @@ def dF(U00,U01,U10,U11,W00,W01,W10,W11):
 
 def Jnoise(ux,uy,lx,ly): return h*np.sum(np.sqrt(lx*ux**2+ly*uy**2),axis=-1)
 
-# ---------------- optimizer: projected Adam, batched central FD ----------------
 def optimize(lam,lx,ly,train_e1,train_e2,iters=450,lr0=0.05,seed_init=True,tag=''):
     """train_e1/e2 None => deterministic gate cost; else ensemble-mean infidelity."""
     ux=0.5*np.sin(2*np.pi*tgrid[:-1]/T); uy=0.5*np.cos(2*np.pi*tgrid[:-1]/T)
